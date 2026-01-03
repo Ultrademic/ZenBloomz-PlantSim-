@@ -1,7 +1,10 @@
 
 import React, { useEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import * as THREE from 'three';
+import * as THREE from 'this-is-not-used-by-three-import-map-but-we-follow-standards';
+import * as THREE_LIB from 'three';
+const THREE = THREE_LIB;
+import { GoogleGenAI } from "@google/genai";
 
 // --- Constants & Types ---
 const MAX_WATER = 100;
@@ -21,6 +24,11 @@ const SIDE_GARDEN_FAST_GROWTH = 1.2;
 const HARVEST_COOLDOWN_MS = 30000; // 30 seconds
 
 type GrowthStage = 'Seedling' | 'Young' | 'Mature';
+
+interface ChatMessage {
+  role: 'user' | 'bot';
+  text: string;
+}
 
 // --- Utilities ---
 const mapRange = (value: number, inMin: number, inMax: number, outMin: number, outMax: number) => {
@@ -67,7 +75,7 @@ class HappySun {
 
   constructor() {
     this.group = new THREE.Group();
-    this.group.position.set(5, 8, -10); // Lowered from 12 to 8
+    this.group.position.set(5, 8, -10);
 
     const bodyGeo = new THREE.SphereGeometry(1.5, 32, 32);
     const bodyMat = new THREE.MeshStandardMaterial({ 
@@ -178,9 +186,8 @@ class GrassField {
       const x = Math.cos(theta) * r;
       const z = Math.sin(theta) * r;
 
-      if (Math.sqrt(x*x + z*z) < 1.2) continue; // Pot area
-      if (Math.sqrt(Math.pow(x+4,2)+Math.pow(z+2,2)) < 1.5) continue; // Well area
-      // Avoid Side Garden Area
+      if (Math.sqrt(x*x + z*z) < 1.2) continue; 
+      if (Math.sqrt(Math.pow(x+4,2)+Math.pow(z+2,2)) < 1.5) continue; 
       if (Math.abs(x - 4) < 1.6 && Math.abs(z + 3.5) < 1.1) continue; 
 
       const color = colors[Math.floor(Math.random() * colors.length)].clone();
@@ -245,53 +252,39 @@ class SideGarden {
   constructor() {
     this.group = new THREE.Group();
     this.group.position.set(4, 0, -3.5);
-    
     const soilWidth = 2.5;
     const soilDepth = 1.5;
-
     const soilGeo = new THREE.BoxGeometry(soilWidth, 0.1, soilDepth);
     const soilMat = new THREE.MeshStandardMaterial({ color: 0x3d2b1f });
     this.soil = new THREE.Mesh(soilGeo, soilMat);
     this.soil.position.y = 0.05;
     this.soil.receiveShadow = true;
     this.group.add(this.soil);
-
-    // Add a rustic fence around back and sides
     const fenceMat = new THREE.MeshStandardMaterial({ color: 0x5d4037 });
     const postGeo = new THREE.BoxGeometry(0.1, 0.6, 0.1);
     const railGeoH = new THREE.BoxGeometry(soilWidth + 0.1, 0.05, 0.05);
     const railGeoV = new THREE.BoxGeometry(0.05, 0.05, soilDepth + 0.1);
-
-    // Posts at corners (Back-Left, Back-Right, Front-Left, Front-Right)
     const postPositions = [
-      [-soilWidth/2, 0.3, -soilDepth/2], // BL
-      [soilWidth/2, 0.3, -soilDepth/2],  // BR
-      [-soilWidth/2, 0.3, soilDepth/2],  // FL
-      [soilWidth/2, 0.3, soilDepth/2]    // FR
+      [-soilWidth/2, 0.3, -soilDepth/2],
+      [soilWidth/2, 0.3, -soilDepth/2],
+      [-soilWidth/2, 0.3, soilDepth/2],
+      [soilWidth/2, 0.3, soilDepth/2]
     ];
-
     postPositions.forEach(p => {
       const post = new THREE.Mesh(postGeo, fenceMat);
       post.position.set(p[0], p[1], p[2]);
       post.castShadow = true;
       this.group.add(post);
     });
-
-    // Back rail
     const backRail = new THREE.Mesh(railGeoH, fenceMat);
     backRail.position.set(0, 0.45, -soilDepth/2);
     this.group.add(backRail);
-
-    // Left rail
     const leftRail = new THREE.Mesh(railGeoV, fenceMat);
     leftRail.position.set(-soilWidth/2, 0.45, 0);
     this.group.add(leftRail);
-
-    // Right rail
     const rightRail = new THREE.Mesh(railGeoV, fenceMat);
     rightRail.position.set(soilWidth/2, 0.45, 0);
     this.group.add(rightRail);
-
     for (let i = 0; i < 3; i++) {
       const p = new Plant(true);
       p.group.position.set((i - 1) * 0.7, 0, 0);
@@ -412,87 +405,54 @@ class Plant {
     const droopAmount = Math.max(0, (1 - waterFactor) * 1.2);
     if (this.soil) { (this.soil.material as THREE.MeshStandardMaterial).color.setHex(water < 20 ? 0x5a4636 : 0x2b1e15); }
     
-    // Cleanup previous meshes
     this.stems.forEach(s => this.group.remove(s));
     this.leaves.forEach(l => this.group.remove(l));
     if (this.flower) this.group.remove(this.flower);
     this.pestsGroup.clear();
-    this.stems = []; 
-    this.leaves = [];
-
-    // Define segments for solid stem
+    this.stems = []; this.leaves = [];
     let segments = 1;
-    if (this.isSmall) { 
-      segments = age < 50 ? 1 : 2; 
-    } else {
+    if (this.isSmall) { segments = age < 50 ? 1 : 2; } 
+    else {
       if (age < 15) segments = 3;
       else if (age < 40) segments = 8;
       else if (age < 75) segments = 15;
-      else segments = 24; // High definition for mature plants
+      else segments = 24; 
     }
-
     const totalHeight = mapRange(age, 0, 100, this.isSmall ? 0.2 : 0.4, this.isSmall ? 1.0 : 6.0);
     const segmentHeight = totalHeight / segments;
     const baseThickness = mapRange(age, 0, 100, 0.04, 0.25);
-    
     let currentY = this.isSmall ? 0.05 : 0.61;
-    const goldenAngle = 2.39996; // Botanical spiral (approx 137.5 degrees)
-
+    const goldenAngle = 2.39996;
     for (let i = 0; i < segments; i++) {
       const topT = (i + 1) / segments;
       const bottomT = i / segments;
       const sTopThickness = baseThickness * (1 - topT * 0.8);
       const sBottomThickness = baseThickness * (1 - bottomT * 0.8);
-      
       const stemGeo = new THREE.CylinderGeometry(sTopThickness, sBottomThickness, segmentHeight, 12);
       stemGeo.translate(0, segmentHeight / 2, 0);
-      
       const healthyColor = new THREE.Color(0x2e7d32).lerp(new THREE.Color(0x8bc34a), topT);
       let stemColor = healthyColor.lerp(new THREE.Color(0x8b7355), (1 - healthFactor) * 0.8);
-      
-      // Make base more woody
-      if (!this.isSmall && i < segments * 0.3) {
-          stemColor.lerp(new THREE.Color(0x5d4037), 0.3 * (1 - (i / (segments * 0.3))));
-      }
-      
+      if (!this.isSmall && i < segments * 0.3) { stemColor.lerp(new THREE.Color(0x5d4037), 0.3 * (1 - (i / (segments * 0.3)))); }
       if (isDiseased) stemColor.lerp(new THREE.Color(0x3e2723), 0.6);
-
       const stemMat = new THREE.MeshStandardMaterial({ color: stemColor, roughness: 0.8 });
       const stem = new THREE.Mesh(stemGeo, stemMat);
       stem.position.y = currentY;
-      
-      // Organic sway and droop
       const sway = Math.sin(Date.now() * 0.001 + i * 0.3) * 0.02 * (i + 1);
       const segmentDroop = (droopAmount * (i + 1) / segments) + sway;
       const organicCurveX = (Math.sin(i * 0.5) * 0.04) * (age / 100);
-      
-      stem.rotation.z = segmentDroop; 
-      stem.rotation.x = organicCurveX; 
-      stem.rotation.y = sway * 0.1;
-      
-      stem.castShadow = true; 
-      this.stems.push(stem); 
-      this.group.add(stem);
-      
-      if (pests > 0 && (i + Math.random()) > (segments - (pests/2))) { 
-        this.addPestMarker(stem, segmentHeight, sBottomThickness); 
-      }
-
-      // Realistic alternating/spiral leaf placement
+      stem.rotation.z = segmentDroop; stem.rotation.x = organicCurveX; stem.rotation.y = sway * 0.1;
+      stem.castShadow = true; this.stems.push(stem); this.group.add(stem);
+      if (pests > 0 && (i + Math.random()) > (segments - (pests/2))) { this.addPestMarker(stem, segmentHeight, sBottomThickness); }
       if (age > 10) {
           const leafChance = this.isSmall ? 0.2 : 0.5;
-          // Every few segments, place a leaf on an alternating side
           if (i % 2 === 0 && Math.random() < leafChance) {
-              const radialOffset = (i * goldenAngle); // Spiral pattern
+              const radialOffset = (i * goldenAngle);
               const verticalOffset = segmentHeight * 0.5;
               this.addLeaf(stem, verticalOffset, i, healthFactor, age < 20 && i === 0, isDiseased, pests, radialOffset, age);
           }
       }
-
-      // Calculate next segment position based on current rotation
       currentY += segmentHeight * Math.cos(stem.rotation.z) * Math.cos(stem.rotation.x);
     }
-    
     if (stage === 'Mature' && health > 60) {
       this.addFlower(currentY, healthFactor, isDiseased, age === 100, isHarvestable);
     }
@@ -510,52 +470,31 @@ class Plant {
 
   addLeaf(parent: THREE.Mesh, yPos: number, index: number, healthFactor: number, isCotyledon: boolean, isDiseased: boolean, pests: number, rotationY: number, age: number) {
     const leafShape = new THREE.Shape();
-    if (isCotyledon) { 
-      leafShape.moveTo(0, 0); 
-      leafShape.absellipse(0, 0.2, 0.15, 0.2, 0, Math.PI * 2, false, 0); 
-    } else { 
-      leafShape.moveTo(0, 0); 
-      leafShape.bezierCurveTo(0.2, 0.2, 0.4, 0.5, 0, 0.9); 
-      leafShape.bezierCurveTo(-0.4, 0.5, -0.2, 0.2, 0, 0); 
-    }
-    
+    if (isCotyledon) { leafShape.moveTo(0, 0); leafShape.absellipse(0, 0.2, 0.15, 0.2, 0, Math.PI * 2, false, 0); } 
+    else { leafShape.moveTo(0, 0); leafShape.bezierCurveTo(0.2, 0.2, 0.4, 0.5, 0, 0.9); leafShape.bezierCurveTo(-0.4, 0.5, -0.2, 0.2, 0, 0); }
     const baseSize = isCotyledon ? 0.4 : mapRange(index, 0, 24, 0.5, 1.8);
     const sizeJitter = baseSize * (0.9 + Math.random() * 0.3) * (this.isSmall ? 0.6 : 1.0);
     const extrudeSettings = { depth: 0.01, bevelEnabled: true, bevelThickness: 0.01, bevelSize: 0.01 };
     const leafGeo = new THREE.ExtrudeGeometry(leafShape, extrudeSettings);
-    
     const baseGreen = new THREE.Color(0x1b5e20);
     const lightGreen = new THREE.Color(0x8bc34a);
     let leafColor = lerpColor(baseGreen, lightGreen, Math.min(1, index / 15));
-    
     leafColor.lerp(new THREE.Color(0xbf9000), (1 - healthFactor));
     if (isDiseased) leafColor.lerp(new THREE.Color(0x3e2723), 0.7);
-    
     const leafMat = new THREE.MeshStandardMaterial({ color: leafColor, side: THREE.DoubleSide, roughness: 0.6 });
     const leaf = new THREE.Mesh(leafGeo, leafMat);
     leaf.scale.set(sizeJitter, sizeJitter, sizeJitter);
-    
-    leaf.position.y = yPos; 
-    leaf.rotation.x = Math.PI / 4 + (Math.random() - 0.5) * 0.2; 
-    leaf.rotation.y = rotationY; 
-    leaf.castShadow = true; 
-    parent.add(leaf);
+    leaf.position.y = yPos; leaf.rotation.x = Math.PI / 4 + (Math.random() - 0.5) * 0.2; leaf.rotation.y = rotationY;
+    leaf.castShadow = true; parent.add(leaf);
   }
 
   addFlower(y: number, healthFactor: number, isDiseased: boolean, isGiant: boolean, isHarvestable: boolean) {
     const c = this.flowerColor.clone();
     if (isDiseased) c.lerp(new THREE.Color(0x4a148c), 0.7);
     const emissiveIntensity = isGiant && isHarvestable ? 1.0 + Math.sin(Date.now() * 0.005) * 0.5 : 0.3;
-    const mat = new THREE.MeshStandardMaterial({ 
-        color: c, 
-        emissive: isDiseased ? 0x100010 : c, 
-        emissiveIntensity: emissiveIntensity,
-        roughness: 0.3 
-    });
-    
+    const mat = new THREE.MeshStandardMaterial({ color: c, emissive: isDiseased ? 0x100010 : c, emissiveIntensity: emissiveIntensity, roughness: 0.3 });
     let flowerMesh: THREE.Object3D;
     const flowerScale = isGiant ? 4.0 : 1.8;
-
     switch (this.flowerType) {
         case 1: flowerMesh = new THREE.Mesh(new THREE.IcosahedronGeometry(0.35, 0), mat); break;
         case 2:
@@ -577,16 +516,9 @@ class Plant {
             break;
         default: flowerMesh = new THREE.Mesh(new THREE.TorusKnotGeometry(0.3, 0.08, 64, 8, 2, 3), mat);
     }
-    
     this.flower = flowerMesh;
-    this.flower.position.y = y + 0.2;
-    this.flower.rotation.x = Math.PI / 2;
-    this.flower.scale.setScalar(healthFactor * flowerScale);
-    if (isGiant && !isHarvestable) {
-        this.flower.scale.multiplyScalar(0.7);
-        (mat as THREE.MeshStandardMaterial).opacity = 0.5;
-        (mat as THREE.MeshStandardMaterial).transparent = true;
-    }
+    this.flower.position.y = y + 0.2; this.flower.rotation.x = Math.PI / 2; this.flower.scale.setScalar(healthFactor * flowerScale);
+    if (isGiant && !isHarvestable) { this.flower.scale.multiplyScalar(0.7); (mat as THREE.MeshStandardMaterial).opacity = 0.5; (mat as THREE.MeshStandardMaterial).transparent = true; }
     this.group.add(this.flower);
   }
 
@@ -638,6 +570,7 @@ const Tooltip: React.FC<{ text: string; x: number; y: number }> = ({ text, x, y 
 // --- Main App Component ---
 const App: React.FC = () => {
   const containerRef = useRef<HTMLDivElement>(null);
+  const chatScrollRef = useRef<HTMLDivElement>(null);
   const [age, setAge] = useState(0);
   const [health, setHealth] = useState(100);
   const [water, setWater] = useState(100);
@@ -651,8 +584,15 @@ const App: React.FC = () => {
   const [message, setMessage] = useState("Welcome to your Garden.");
   const [zenPoints, setZenPoints] = useState(0);
   const [isTreatingRequested, setIsTreatingRequested] = useState(false);
+  const [isWateringRequested, setIsWateringRequested] = useState(false);
   const [hoverTip, setHoverTip] = useState<{ text: string; x: number; y: number } | null>(null);
   const [lastHarvestTime, setLastHarvestTime] = useState(0);
+  
+  // Chat State
+  const [isChatOpen, setIsChatOpen] = useState(false);
+  const [chatHistory, setChatHistory] = useState<ChatMessage[]>([]);
+  const [userInput, setUserInput] = useState('');
+  const [isTyping, setIsTyping] = useState(false);
 
   const plantRef = useRef<Plant | null>(null);
   const helperRef = useRef<GardenHelper | null>(null);
@@ -707,6 +647,59 @@ const App: React.FC = () => {
     return () => { window.removeEventListener('resize', handleResize); containerRef.current?.removeChild(renderer.domElement); };
   }, [isDay]);
 
+  const handleZenBotChat = async () => {
+    if (!userInput.trim()) return;
+
+    const userMsg: ChatMessage = { role: 'user', text: userInput };
+    setChatHistory(prev => [...prev, userMsg]);
+    setUserInput('');
+    setIsTyping(true);
+
+    try {
+      const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+      const systemInstruction = `You are Zen Bot, a peaceful meditation master and expert gardener in the virtual game 'Zen Bloom'. 
+      Your personality is wise, calm, and encouraging. Use botanical metaphors in your speech. 
+      You know the current state of the garden: 
+      - Main plant age: ${Math.round(age)}% (0 is seedling, 100 is fully grown)
+      - Plant Vitality: ${Math.round(health)}%
+      - Water Level: ${Math.round(water)}%
+      - Sunlight: ${Math.round(sunlight)}%
+      - Rest Level: ${Math.round(rest)}%
+      - Time of Day: ${isDay ? 'Daytime' : 'Nighttime'}
+      - Harvest Status: ${isHarvestable ? 'A giant bloom is ready for harvest!' : 'No giant bloom yet.'}
+      If the user is stressed, offer a 1-sentence mindfulness prompt. If they ask about the plant, give expert gardener advice based on the stats above. Keep responses concise and soothing.`;
+
+      const responseStream = await ai.models.generateContentStream({
+        model: 'gemini-3-flash-preview',
+        contents: userInput,
+        config: { systemInstruction }
+      });
+
+      let botResponse = '';
+      setChatHistory(prev => [...prev, { role: 'bot', text: '' }]);
+
+      for await (const chunk of responseStream) {
+        botResponse += chunk.text;
+        setChatHistory(prev => {
+          const newHistory = [...prev];
+          newHistory[newHistory.length - 1].text = botResponse;
+          return newHistory;
+        });
+      }
+    } catch (err) {
+      console.error(err);
+      setChatHistory(prev => [...prev, { role: 'bot', text: "The garden mist is too thick for me to speak right now. Breathe deeply, gardener." }]);
+    } finally {
+      setIsTyping(false);
+    }
+  };
+
+  useEffect(() => {
+    if (chatScrollRef.current) {
+      chatScrollRef.current.scrollTop = chatScrollRef.current.scrollHeight;
+    }
+  }, [chatHistory]);
+
   const onPointerDown = (event: React.PointerEvent) => {
     if (!cameraRef.current || !sceneRef.current || !helperRef.current || !groundRef.current) return;
     if (event.button !== 0) return;
@@ -716,7 +709,7 @@ const App: React.FC = () => {
     if (helperIntersects.length > 0) { const newSelected = !isHelperSelected; setIsHelperSelected(newSelected); helperRef.current.updateSelection(newSelected); setMessage(newSelected ? "Helper Bot-Z Targeted!" : "Helper Bot-Z Deselected."); return; }
     if (isHelperSelected) {
       const groundIntersects = raycaster.current.intersectObject(groundRef.current);
-      if (groundIntersects.length > 0) { helperRef.current.targetPosition.copy(groundIntersects[0].point); setIsTreatingRequested(false); setMessage("Bot-Z heading to new location."); }
+      if (groundIntersects.length > 0) { helperRef.current.targetPosition.copy(groundIntersects[0].point); setIsTreatingRequested(false); setIsWateringRequested(false); setMessage("Bot-Z heading to new location."); }
     }
   };
 
@@ -729,16 +722,58 @@ const App: React.FC = () => {
       else { setRest(r => Math.min(MAX_VALUE, r + REST_CHANGE_RATE)); setSunlight(s => Math.max(0, s - NATURAL_DECAY)); }
       if (helperRef.current && wellRef.current && sideGardenRef.current) {
         const hPos = helperRef.current.group.position;
-        const distWell = hPos.distanceTo(wellRef.current.group.position);
+        const wellPos = wellRef.current.group.position;
+        const distWell = hPos.distanceTo(wellPos);
         const distPlant = hPos.distanceTo(new THREE.Vector3(0, 0, 0));
         const distSideGarden = hPos.distanceTo(sideGardenRef.current.group.position);
-        if (distWell < 1.0 && !helperRef.current.hasWater) { helperRef.current.setHasWater(true); setHelperStatus("Carrying Water"); setMessage("Bot-Z gathered water!"); }
-        if (distPlant < 1.2 && helperRef.current.hasWater) { helperRef.current.setHasWater(false); setHelperStatus("Empty"); setWater(w => Math.min(MAX_WATER, w + HELPER_WATER_BOOST)); setHealth(h => Math.min(MAX_HEALTH, h + 5)); waterRef.current?.trigger(); setMessage("Bot-Z is watering the plant!"); }
+        
+        if (isWateringRequested) {
+          if (!helperRef.current.hasWater) {
+            helperRef.current.targetPosition.set(wellPos.x, 0.5, wellPos.z);
+            setHelperStatus("Gathering");
+            if (distWell < 1.0) {
+              helperRef.current.setHasWater(true);
+              setHelperStatus("Carrying Water");
+              setMessage("Bot-Z gathered water from the well!");
+            }
+          } else {
+            helperRef.current.targetPosition.set(0, 0.5, 0);
+            setHelperStatus("Carrying Water");
+            if (distPlant < 1.2) {
+              helperRef.current.setHasWater(false);
+              setHelperStatus("Empty");
+              setWater(w => Math.min(MAX_WATER, w + HELPER_WATER_BOOST));
+              setHealth(h => Math.min(MAX_HEALTH, h + 5));
+              waterRef.current?.trigger();
+              setIsWateringRequested(false);
+              setMessage("Bot-Z has watered the plant!");
+            }
+          }
+        }
+
+        if (!isWateringRequested && !isTreatingRequested) {
+          if (distWell < 1.0 && !helperRef.current.hasWater) { 
+            helperRef.current.setHasWater(true); 
+            setHelperStatus("Carrying Water"); 
+            setMessage("Bot-Z gathered water!"); 
+          }
+          if (distPlant < 1.2 && helperRef.current.hasWater) { 
+            helperRef.current.setHasWater(false); 
+            setHelperStatus("Empty"); 
+            setWater(w => Math.min(MAX_WATER, w + HELPER_WATER_BOOST)); 
+            setHealth(h => Math.min(MAX_HEALTH, h + 5)); 
+            waterRef.current?.trigger(); 
+            setMessage("Bot-Z manual delivery complete!"); 
+          }
+        }
+
         if (isTreatingRequested) {
-          helperRef.current.targetPosition.set(0, 0.5, 0); setHelperStatus("Treating Main Plant");
+          helperRef.current.targetPosition.set(0, 0.5, 0); 
+          setHelperStatus("Treating Main Plant");
           if (distPlant < 1.2) { setPests(0); setIsDiseased(false); setIsTreatingRequested(false); setHelperStatus("Empty"); setMessage("Bot-Z has treated the plant!"); }
         }
-        if (distSideGarden < 1.5 && !helperRef.current.hasWater && !isTreatingRequested) {
+
+        if (distSideGarden < 1.5 && !helperRef.current.hasWater && !isTreatingRequested && !isWateringRequested) {
           setHelperStatus("Working Side Garden");
           sideGardenRef.current.healths = sideGardenRef.current.healths.map(h => Math.min(100, h + 0.6));
           sideGardenRef.current.ages = sideGardenRef.current.ages.map((a, i) => {
@@ -760,7 +795,7 @@ const App: React.FC = () => {
       if (Math.random() < 0.003) { setPests(p => Math.min(10, p + 1)); setMessage("Warning: Pests spotted!"); }
     }, 100);
     return () => clearInterval(timer);
-  }, [isDay, isDiseased, isHelperSelected, helperStatus, isTreatingRequested, health, water, sunlight, rest, pests]);
+  }, [isDay, isDiseased, isHelperSelected, helperStatus, isTreatingRequested, isWateringRequested, health, water, sunlight, rest, pests, isHarvestable]);
 
   useEffect(() => {
     if (plantRef.current) plantRef.current.update(age, health, water, pests, isDiseased, isHarvestable);
@@ -768,7 +803,7 @@ const App: React.FC = () => {
   }, [age, health, water, pests, isDiseased, isHarvestable]);
 
   const resetGarden = () => {
-    setAge(0); setHealth(100); setWater(100); setPests(0); setZenPoints(0); setIsDiseased(false); setIsTreatingRequested(false); setLastHarvestTime(0);
+    setAge(0); setHealth(100); setWater(100); setPests(0); setZenPoints(0); setIsDiseased(false); setIsTreatingRequested(false); setIsWateringRequested(false); setLastHarvestTime(0);
     if(sideGardenRef.current) { sideGardenRef.current.ages = [0, 0, 0]; sideGardenRef.current.healths = [80, 80, 80]; }
     if(plantRef.current) { plantRef.current.flowerColor = new THREE.Color().setHSL(Math.random(), 0.8, 0.6); plantRef.current.flowerType = Math.floor(Math.random() * 4); }
     setMessage("Garden reset.");
@@ -793,18 +828,22 @@ const App: React.FC = () => {
     <div className="relative w-full h-full select-none overflow-hidden" onPointerDown={onPointerDown} onContextMenu={onContextMenu}>
       <div ref={containerRef} className="absolute inset-0 z-0" />
       {hoverTip && <Tooltip {...hoverTip} />}
+
+      {/* Zen Points Header */}
       <div className="absolute top-4 left-1/2 -translate-x-1/2 z-20 pointer-events-auto cursor-help" onMouseEnter={(e) => handleStatHover(e, "Grow your garden to earn Zen Points. Side garden blooms reward +50 points! Giant blooms reward +500!")} onMouseLeave={handleStatLeave}>
         <div className="glass px-8 py-2 border-b-4 border-yellow-500 shadow-2xl">
           <span className="text-[10px] uppercase tracking-[0.4em] font-black text-gray-400 block text-center">Zen Points</span>
           <span className="text-3xl font-black text-yellow-600 block text-center tabular-nums">{zenPoints.toLocaleString()}</span>
         </div>
       </div>
+
+      {/* Main Stats Panel */}
       <div className="absolute top-8 left-8 z-10 space-y-4 max-w-xs w-full pointer-events-none">
         <div className="glass p-6 shadow-xl pointer-events-auto border-t-4 border-green-400">
           <h1 className="text-2xl font-bold text-green-800 mb-1">Zen Bloom</h1>
           <p className="text-xs text-green-600 tracking-wider uppercase font-semibold mb-4">{age < 30 ? 'Seedling' : age < 70 ? 'Young Plant' : 'Mature Bloom'}</p>
           <div className="space-y-4">
-            <div onMouseEnter={(e) => handleStatHover(e, "Hydration: Plants need water! Low water reduces vitality. Use the 💧 button or Bot-Z.")} onMouseLeave={handleStatLeave} className="cursor-help">
+            <div onMouseEnter={(e) => handleStatHover(e, "Hydration: Plants need water! Low water reduces vitality. Use the 💧 button to send Bot-Z.")} onMouseLeave={handleStatLeave} className="cursor-help">
               <div className="flex justify-between text-xs mb-1 text-gray-600 font-bold uppercase"><span>💧 Hydration</span><span>{Math.round(water)}%</span></div>
               <div className="w-full bg-gray-200 rounded-full h-2 overflow-hidden"><div className="progress-bar bg-blue-400" style={{ width: `${water}%` }} /></div>
             </div>
@@ -824,7 +863,9 @@ const App: React.FC = () => {
         </div>
         <div className="glass p-4 text-center pointer-events-auto shadow-sm"><p className="text-sm italic text-gray-600">"{message}"</p></div>
       </div>
-      <div className="absolute top-8 right-8 flex flex-col items-end gap-2 pointer-events-none">
+
+      {/* Helper Panel - Moved lower from top-8 to top-64 to avoid Sun overlap */}
+      <div className="absolute top-64 right-8 flex flex-col items-end gap-2 pointer-events-none">
          <div className={`glass p-4 w-48 shadow-lg pointer-events-auto border-t-4 transition-all duration-500 cursor-help ${isHelperSelected ? 'border-green-500 scale-105' : 'border-transparent'}`} onMouseEnter={(e) => handleStatHover(e, "Bot-Z: Automated gardener. Click to select, click ground to move. Fetches water and kills pests!")} onMouseLeave={handleStatLeave}>
             <h2 className="text-[10px] font-bold text-gray-400 uppercase mb-2 tracking-widest">Helper Bot-Z</h2>
             <div className="flex items-center gap-3">
@@ -834,17 +875,99 @@ const App: React.FC = () => {
          </div>
          <button onClick={resetGarden} className="glass px-4 py-2 text-xs font-bold text-gray-400 hover:text-red-400 pointer-events-auto shadow-sm transition-colors">RESET GARDEN</button>
       </div>
+
+      {/* Bottom Controls */}
       <div className="absolute bottom-8 left-1/2 -translate-x-1/2 z-10 flex space-x-4">
         {isHarvestable && (
             <button onClick={harvestFlower} className="glass px-6 py-3 font-semibold text-yellow-800 bg-yellow-400/30 hover:bg-yellow-400/50 transition-all active:scale-95 flex flex-col items-center shadow-lg border-2 border-yellow-500 animate-bounce" onMouseEnter={(e) => handleStatHover(e, "Harvest the giant bloom for 500 Zen Points!")} onMouseLeave={handleStatLeave}>
                 <span className="text-xl">🌸</span><span className="text-xs mt-1 uppercase tracking-widest font-bold">Harvest</span>
             </button>
         )}
-        <button onClick={() => { setWater(w => Math.min(MAX_WATER, w + WATER_BOOST)); waterRef.current?.trigger(); }} className="glass px-6 py-3 font-semibold text-blue-700 hover:bg-blue-50 transition-all active:scale-95 flex flex-col items-center shadow-md" onMouseEnter={(e) => handleStatHover(e, "Hydrate the plant immediately.")} onMouseLeave={handleStatLeave}><span className="text-xl">💧</span><span className="text-xs mt-1 uppercase tracking-widest font-bold">Water</span></button>
+        <button onClick={() => { setIsWateringRequested(true); setMessage("Sending Bot-Z to the well..."); }} className="glass px-6 py-3 font-semibold text-blue-700 hover:bg-blue-50 transition-all active:scale-95 flex flex-col items-center shadow-md" onMouseEnter={(e) => handleStatHover(e, "Command Bot-Z to fetch water and hydrate the plant.")} onMouseLeave={handleStatLeave}><span className="text-xl">💧</span><span className="text-xs mt-1 uppercase tracking-widest font-bold">Water</span></button>
         <button onClick={() => { setAge(a => Math.min(100, a + 5)); setHealth(h => Math.min(MAX_HEALTH, h + NUTRIENT_BOOST)); }} className="glass px-6 py-3 font-semibold text-green-700 hover:bg-green-50 transition-all active:scale-95 flex flex-col items-center shadow-md" onMouseEnter={(e) => handleStatHover(e, "Instantly grow and heal the plant using nutrients.")} onMouseLeave={handleStatLeave}><span className="text-xl">✨</span><span className="text-xs mt-1 uppercase tracking-widest font-bold">Fertilize</span></button>
         {(pests > 0 || isDiseased) && (<button onClick={() => setIsTreatingRequested(true)} className="glass px-6 py-3 font-semibold text-red-700 hover:bg-red-50 transition-all active:scale-95 flex flex-col items-center shadow-lg animate-bounce group" onMouseEnter={(e) => handleStatHover(e, "Send Bot-Z to treat pest infestation and disease.")} onMouseLeave={handleStatLeave}><span className="text-xl group-hover:rotate-12 transition-transform">🧪</span><span className="text-xs mt-1 uppercase tracking-widest font-bold">Bot-Z Treat</span></button>)}
         <button onClick={() => setIsDay(!isDay)} className="glass px-6 py-3 font-semibold text-yellow-700 hover:bg-yellow-50 transition-all active:scale-95 flex flex-col items-center shadow-md" onMouseEnter={(e) => handleStatHover(e, "Toggle Day/Night. Sunlight increases in day, Rest increases at night.")} onMouseLeave={handleStatLeave}><span className="text-xl">{isDay ? '☀️' : '🌙'}</span><span className="text-xs mt-1 uppercase tracking-widest font-bold">{isDay ? 'Day' : 'Night'}</span></button>
       </div>
+
+      {/* Zen Bot AI Chat */}
+      <div className="absolute bottom-8 right-8 z-50">
+        {!isChatOpen ? (
+          <button 
+            onClick={() => setIsChatOpen(true)}
+            className="w-16 h-16 rounded-full glass flex items-center justify-center shadow-2xl hover:scale-110 transition-transform animate-pulse border-2 border-teal-400 group"
+          >
+            <span className="text-3xl group-hover:rotate-12 transition-transform">🧘‍♂️</span>
+          </button>
+        ) : (
+          <div className="w-80 h-[500px] glass shadow-2xl flex flex-col border-2 border-teal-200 animate-in slide-in-from-bottom duration-300">
+            <div className="p-4 border-b border-teal-100 flex justify-between items-center bg-teal-50/50">
+              <span className="font-bold text-teal-800 flex items-center gap-2">
+                <span>🧘‍♂️</span> Zen Bot Assistant
+              </span>
+              <button onClick={() => setIsChatOpen(false)} className="text-teal-400 hover:text-teal-600 font-bold">✕</button>
+            </div>
+            
+            <div ref={chatScrollRef} className="flex-1 overflow-y-auto p-4 space-y-3 custom-scrollbar">
+              {chatHistory.length === 0 && (
+                <div className="text-center text-teal-600/70 text-sm mt-10">
+                  "Speak with the stillness, gardener. I am here to guide your growth."
+                </div>
+              )}
+              {chatHistory.map((msg, i) => (
+                <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                  <div className={`max-w-[80%] px-4 py-2 rounded-2xl text-sm shadow-sm ${
+                    msg.role === 'user' 
+                      ? 'bg-teal-500 text-white rounded-br-none' 
+                      : 'bg-white/80 text-teal-900 rounded-bl-none border border-teal-50'
+                  }`}>
+                    {msg.text}
+                  </div>
+                </div>
+              ))}
+              {isTyping && (
+                <div className="flex justify-start">
+                  <div className="bg-white/50 px-4 py-2 rounded-2xl animate-pulse text-teal-400 text-xs">
+                    Zen Bot is meditating on your words...
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div className="p-4 bg-white/30 backdrop-blur-sm rounded-b-[1.5rem]">
+              <div className="relative">
+                <input 
+                  type="text"
+                  value={userInput}
+                  onChange={(e) => setUserInput(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && handleZenBotChat()}
+                  placeholder="Ask for Zen tips..."
+                  className="w-full bg-white/80 border border-teal-100 rounded-full px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-300 shadow-inner pr-10"
+                />
+                <button 
+                  onClick={handleZenBotChat}
+                  disabled={isTyping}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-teal-500 hover:text-teal-700"
+                >
+                  <span className="text-lg">➔</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+
+      <style>{`
+        .custom-scrollbar::-webkit-scrollbar {
+          width: 4px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-track {
+          background: transparent;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb {
+          background: #2dd4bf50;
+          border-radius: 10px;
+        }
+      `}</style>
     </div>
   );
 };
